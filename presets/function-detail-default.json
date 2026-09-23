@@ -1,0 +1,12 @@
+{
+  "name": "function-detail-default",
+  "purpose": "Readable one-function SVG for documentation and slides",
+  "show": ["signature", "docstring", "calls", "returns", "source_lines"],
+  "hide_by_default": ["local_variables", "full_source_code"],
+  "principles": [
+    "One diagram should answer one question.",
+    "Prefer input-process-output over full AST detail.",
+    "Keep helper calls visible but secondary.",
+    "Use the detailed view only when implementation explanation is needed."
+  ]
+}
