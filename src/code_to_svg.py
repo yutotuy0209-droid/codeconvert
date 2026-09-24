@@ -4,7 +4,14 @@
 from __future__ import annotations
 import argparse
 import ast
+import sys
 from pathlib import Path
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 from model import FunctionInfo, write_json
 from renderer import render_function_svg, render_module_svg, slugify
