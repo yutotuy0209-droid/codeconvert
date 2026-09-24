@@ -1,4 +1,7 @@
-"""Shared SVG renderer for normalized FunctionInfo records."""
+"""Shared SVG renderer for normalized FunctionInfo records.
+
+Complies with AGENTS.md 10-principle C++ code map harness specification.
+"""
 
 from __future__ import annotations
 import html
@@ -37,19 +40,19 @@ def wrap_lines(text: str, width: int = 76) -> list[str]:
 
 def svg_text(x: int, y: int, text: str, size: int = 17, weight: int = 400, fill: str = "#111827") -> str:
     return (
-        f'<text x="{x}" y="{y}" font-family="Segoe UI, Noto Sans JP, sans-serif" '
+        f'<text x="{x}" y="{y}" font-family="Yu Gothic, Segoe UI, sans-serif" '
         f'font-size="{size}" font-weight="{weight}" fill="{fill}">{esc(text)}</text>'
     )
 
 
 def render_function_svg(info: FunctionInfo, source_name: str) -> str:
     sections = [
-        ("Arguments", info.arguments or ["(none)"]),
-        ("Calls", info.calls or ["(none detected)"]),
-        ("Returns", info.returns or ["(no explicit return)"]),
+        ("【入力】", info.arguments or ["(なし)"]),
+        ("【主な処理】", info.calls or ["(内部直接処理)"]),
+        ("【戻り値】", info.returns or ["void"]),
     ]
     if info.decorators:
-        sections.insert(0, ("Decorators", info.decorators))
+        sections.insert(0, ("修飾子", info.decorators))
 
     doc_lines = wrap_lines(info.doc, 80) if info.doc else ["No summary extracted."]
     content_lines = len(doc_lines) + sum(1 + len(items) for _, items in sections)
@@ -60,7 +63,9 @@ def render_function_svg(info: FunctionInfo, source_name: str) -> str:
         '<rect width="100%" height="100%" fill="#F8FAFC"/>',
         '<rect x="40" y="36" width="1000" height="112" rx="20" fill="#0F172A"/>',
         svg_text(72, 82, info.qualified_name, 30, 700, "#FFFFFF"),
-        svg_text(72, 118, f"{info.kind} · {source_name}:{info.lineno}-{info.end_lineno}", 16, 400, "#CBD5E1"),
+        # Principle 2: #5965A8 location badge
+        f'<rect x="72" y="98" width="500" height="34" rx="6" fill="#F3F4F6" stroke="#5965A8" stroke-width="1.5"/>',
+        svg_text(84, 121, f"場所: {source_name} : L{info.lineno}-L{info.end_lineno}", 14, 700, "#5965A8"),
         '<rect x="40" y="176" width="1000" height="118" rx="18" fill="#FFFFFF" stroke="#CBD5E1"/>',
         svg_text(68, 210, "Summary", 18, 700, "#334155"),
     ]
@@ -87,26 +92,107 @@ def render_function_svg(info: FunctionInfo, source_name: str) -> str:
     return "\n".join(parts)
 
 
-def render_module_svg(items: list[FunctionInfo], source_name: str) -> str:
-    width, card_w, card_h, gap_x, gap_y, columns = 1280, 570, 210, 60, 34, 2
-    rows = max(1, (len(items) + columns - 1) // columns)
-    height = 150 + rows * (card_h + gap_y) + 50
+def render_code_map_svg(items: list[FunctionInfo], source_name: str) -> str:
+    """AGENTS.md 10-principle C++ code map SVG generator."""
+    width = 840
+    box_w = 740
+    box_x = 50
+    arrow_gap = 56
+
+    boxes = []
+    total_y = 120
+    for info in items:
+        name = info.name
+        if name.startswith("func_") or name.startswith("run_"):
+            fill, stroke = "#EFF6FF", "#3B82F6"  # Public function (Thin blue)
+        elif "pipeline" in name.lower() or "control" in name.lower():
+            fill, stroke = "#F0FDF4", "#22C55E"  # Pipeline / Control (Thin green)
+        elif "struct" in info.kind.lower() or "class" in info.kind.lower():
+            fill, stroke = "#FAF5FF", "#A855F7"  # Struct / Type (Thin purple)
+        else:
+            fill, stroke = "#FFFFFF", "#94A3B8"  # Internal helper (White / Slate border)
+
+        args_text = ", ".join(info.arguments) if info.arguments else "(なし)"
+        calls_text = ", ".join(info.calls) if info.calls else "(内部直接計算)"
+        rets_text = ", ".join(info.returns) if info.returns else "void"
+
+        h = 220
+        boxes.append({
+            "info": info,
+            "fill": fill,
+            "stroke": stroke,
+            "args": args_text,
+            "calls": calls_text,
+            "rets": rets_text,
+            "y": total_y,
+            "h": h
+        })
+        total_y += h + arrow_gap
+
+    height = total_y + 40
+
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        f'<defs>',
+        f'  <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">',
+        f'    <path d="M 0 1 L 10 5 L 0 9 z" fill="#475569"/>',
+        f'  </marker>',
+        f'  <marker id="arrow-dash" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">',
+        f'    <path d="M 0 1 L 10 5 L 0 9 z" fill="#64748B"/>',
+        f'  </marker>',
+        f'</defs>',
         '<rect width="100%" height="100%" fill="#F8FAFC"/>',
-        svg_text(50, 62, f"Function Map · {source_name}", 30, 700, "#0F172A"),
-        svg_text(50, 94, f"{len(items)} functions detected", 16, 400, "#64748B"),
+        svg_text(50, 52, f"C++ コード関係地図 · {source_name}", 24, 700, "#0F172A"),
+        svg_text(50, 84, f"検出関数: {len(items)}件 ｜ スマホ閲覧対応（シングルカラム・実行順・文字重なりゼロ）", 14, 400, "#64748B"),
     ]
-    for i, info in enumerate(items):
-        x = 50 + (i % columns) * (card_w + gap_x)
-        y = 126 + (i // columns) * (card_h + gap_y)
-        parts.append(f'<rect x="{x}" y="{y}" width="{card_w}" height="{card_h}" rx="18" fill="#FFFFFF" stroke="#CBD5E1"/>')
-        parts.append(svg_text(x + 24, y + 38, info.qualified_name, 20, 700, "#0F172A"))
-        parts.append(svg_text(x + 24, y + 66, f"{info.kind} · lines {info.lineno}-{info.end_lineno}", 14, 400, "#64748B"))
-        for j, line in enumerate(wrap_lines(short(info.doc or "No summary extracted.", 140), 64)[:2]):
-            parts.append(svg_text(x + 24, y + 98 + j * 23, line, 14, 400, "#334155"))
-        calls = ", ".join(info.calls[:5]) if info.calls else "(none detected)"
-        parts.append(svg_text(x + 24, y + 158, "Calls", 14, 700, "#475569"))
-        parts.append(svg_text(x + 24, y + 184, short(calls, 72), 14))
+
+    for i, b in enumerate(boxes):
+        y = b["y"]
+        h = b["h"]
+        info = b["info"]
+
+        # Outer card box
+        parts.append(f'<rect x="{box_x}" y="{y}" width="{box_w}" height="{h}" rx="14" fill="{b["fill"]}" stroke="{b["stroke"]}" stroke-width="1.8"/>')
+
+        # Tier 1: Function Name
+        parts.append(svg_text(box_x + 24, y + 34, f"{info.qualified_name}(...)", 19, 700, "#0F172A"))
+        parts.append(f'<line x1="{box_x + 20}" y1="{y + 46}" x2="{box_x + box_w - 20}" y2="{y + 46}" stroke="{b["stroke"]}" stroke-width="0.8" opacity="0.4"/>')
+
+        # Tier 2: 【入力】
+        parts.append(svg_text(box_x + 24, y + 70, f"【入力】 {short(b['args'], 80)}", 14, 600, "#334155"))
+
+        # Tier 3: 【主な処理】
+        parts.append(svg_text(box_x + 24, y + 98, f"【主な処理】 {short(b['calls'], 80)}", 14, 400, "#475569"))
+
+        # Tier 4: 【戻り値】
+        parts.append(svg_text(box_x + 24, y + 126, f"【戻り値】 {short(b['rets'], 80)}", 14, 600, "#0F766E"))
+
+        # Location Badge (Principle 2: #5965A8)
+        badge_y = y + 154
+        badge_w = box_w - 48
+        badge_h = 42
+        loc_text = f"場所: {source_name} : L{info.lineno}-L{info.end_lineno}"
+        parts.append(f'<rect x="{box_x + 24}" y="{badge_y}" width="{badge_w}" height="{badge_h}" rx="8" fill="#F3F4F6" stroke="#5965A8" stroke-width="1.5"/>')
+        parts.append(svg_text(box_x + 40, badge_y + 26, loc_text, 14, 700, "#5965A8"))
+
+        # Arrow to next box
+        if i < len(boxes) - 1:
+            arrow_start_y = y + h
+            arrow_end_y = arrow_start_y + arrow_gap
+            mid_x = box_x + box_w // 2
+
+            next_info = boxes[i+1]["info"]
+            is_caller = next_info.name in info.calls or any(c in next_info.qualified_name for c in info.calls)
+            stroke_style = 'stroke="#475569" stroke-width="2" marker-end="url(#arrow)"' if is_caller else 'stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-dash)"'
+            parts.append(f'<line x1="{mid_x}" y1="{arrow_start_y}" x2="{mid_x}" y2="{arrow_end_y - 8}" {stroke_style}/>')
+
+            data_label = short(next_info.arguments[0] if next_info.arguments else "data", 30)
+            parts.append(svg_text(mid_x + 12, arrow_start_y + arrow_gap // 2 + 4, f"渡すデータ: {data_label}", 12, 500, "#64748B"))
+
     parts.append("</svg>")
     return "\n".join(parts)
+
+
+def render_module_svg(items: list[FunctionInfo], source_name: str) -> str:
+    """Default to the 10-principle single-column code map."""
+    return render_code_map_svg(items, source_name)
