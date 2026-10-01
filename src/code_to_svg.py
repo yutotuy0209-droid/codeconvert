@@ -82,8 +82,11 @@ def main() -> int:
     p.add_argument("--out", type=Path)
     p.add_argument("--json", dest="json_path", type=Path)
     p.add_argument("--function", dest="function_name")
+    p.add_argument("--line", type=int, help="Select a function by its definition start line; disambiguates repeated names.")
     p.add_argument("--split", type=Path)
     args = p.parse_args()
+    if args.line is not None and not args.function_name:
+        p.error("--line requires --function")
 
     items = analyze(args.source)
     if not items:
@@ -95,7 +98,9 @@ def main() -> int:
     if args.split:
         args.split.mkdir(parents=True, exist_ok=True)
         for item in items:
-            (args.split / f"{slugify(item.qualified_name)}.svg").write_text(
+            duplicate = sum(i.qualified_name == item.qualified_name for i in items) > 1
+            suffix = f"-L{item.lineno}" if duplicate else ""
+            (args.split / f"{slugify(item.qualified_name)}{suffix}.svg").write_text(
                 render_function_svg(item, args.source.name), encoding="utf-8"
             )
 
@@ -103,6 +108,12 @@ def main() -> int:
         matches = [i for i in items if i.qualified_name == args.function_name or i.name == args.function_name]
         if not matches:
             raise SystemExit("Function not found. Available: " + ", ".join(i.qualified_name for i in items))
+        if args.line is not None:
+            matches = [i for i in matches if i.lineno == args.line]
+            if not matches:
+                raise SystemExit("No matching function at line " + str(args.line))
+        if len(matches) != 1:
+            raise SystemExit("Ambiguous function; use --line. Definition lines: " + ", ".join(str(i.lineno) for i in matches))
         svg = render_function_svg(matches[0], args.source.name)
     else:
         svg = render_module_svg(items, args.source.name)

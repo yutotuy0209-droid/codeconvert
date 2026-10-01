@@ -40,6 +40,12 @@ python src/code_to_svg.py path/to/source.cpp --function func_xy --out output/fun
 
 ### 中間JSONも保存
 
+同じ関数名に複数の定義がある場合、`--function`だけでは選択せずエラーにします。定義の開始行を`--line`で指定してください。`--split`は重複名だけに`-L行番号`を付け、別の定義を上書きしません。行指定は構文上の定義の選択であり、条件分岐や実行時の呼出先を確定する機能ではありません。
+
+```bash
+python src/code_to_svg.py source.py --function compute --line 40 --out output/compute.svg
+```
+
 ```bash
 python src/code_to_svg.py path/to/source.m --json output/source.json --out output/source.svg
 ```

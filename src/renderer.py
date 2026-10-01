@@ -55,8 +55,10 @@ def render_function_svg(info: FunctionInfo, source_name: str) -> str:
         sections.insert(0, ("修飾子", info.decorators))
 
     doc_lines = wrap_lines(info.doc, 80) if info.doc else ["No summary extracted."]
-    content_lines = len(doc_lines) + sum(1 + len(items) for _, items in sections)
-    height, width = max(540, 260 + content_lines * 30), 1080
+    summary_h = max(118, 66 + 26 * len(doc_lines))
+    section_start = max(326, 242 + 26 * len(doc_lines) + 22, 176 + summary_h + 32)
+    height = section_start + sum(54 + max(1, len(values)) * 28 + 18 for _, values in sections) + 12
+    width = 1080
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
@@ -66,7 +68,7 @@ def render_function_svg(info: FunctionInfo, source_name: str) -> str:
         # Principle 2: #5965A8 location badge
         f'<rect x="72" y="98" width="500" height="34" rx="6" fill="#F3F4F6" stroke="#5965A8" stroke-width="1.5"/>',
         svg_text(84, 121, f"場所: {source_name} : L{info.lineno}-L{info.end_lineno}", 14, 700, "#5965A8"),
-        '<rect x="40" y="176" width="1000" height="118" rx="18" fill="#FFFFFF" stroke="#CBD5E1"/>',
+        f'<rect x="40" y="176" width="1000" height="{summary_h}" rx="18" fill="#FFFFFF" stroke="#CBD5E1"/>',
         svg_text(68, 210, "Summary", 18, 700, "#334155"),
     ]
 
@@ -74,7 +76,7 @@ def render_function_svg(info: FunctionInfo, source_name: str) -> str:
     for line in doc_lines:
         parts.append(svg_text(68, y, line, 16))
         y += 26
-    y = max(326, y + 22)
+    y = section_start
 
     fills = ["#EFF6FF", "#F0FDF4", "#FFF7ED", "#FAF5FF"]
     borders = ["#93C5FD", "#86EFAC", "#FDBA74", "#D8B4FE"]

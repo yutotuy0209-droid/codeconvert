@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 import sys
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -32,6 +33,17 @@ class FunctionToSvgTest(unittest.TestCase):
             out = Path(tmp) / "function.svg"
             out.write_text(render_function_svg(items[0], self.fixture.name), encoding="utf-8")
             self.assertTrue(out.exists())
+
+    def test_function_canvas_contains_all_sections(self):
+        from renderer import render_function_svg as render_shared_function
+        for info in analyze_python(self.fixture):
+            root = ET.fromstring(render_shared_function(info, self.fixture.name))
+            height = float(root.get("height"))
+            for node in root:
+                if node.tag.endswith("rect") and node.get("y"):
+                    self.assertLessEqual(float(node.get("y")) + float(node.get("height")), height)
+                if node.tag.endswith("text"):
+                    self.assertLess(float(node.get("y")), height)
 
 
 if __name__ == "__main__":
