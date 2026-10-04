@@ -1,14 +1,15 @@
 # ROADMAP
 
-コード理解・言語変換・AIコンテキスト効率化を同じ中間表現の上で扱う。
+コード理解・言語変換・AIコンテキスト効率化・プレゼン資料化を同じ中間表現の上で扱う。
 
 ## Core architecture
 
 ```text
 Python ─┐
 C/C++ ──┼─> language adapters ─> code IR
-MATLAB ─┤                         ├─> SVG / maps
-JS etc ─┘                         ├─> language conversion
+MATLAB ─┤                         ├─> SVG / Mermaid / JSON
+JS etc ─┘                         ├─> PPTX / motion storyboard / optional GIF
+                                  ├─> language conversion
                                   └─> minimal AI context
 ```
 
@@ -20,9 +21,9 @@ JS etc ─┘                         ├─> language conversion
 - [ ] C04 JavaScript parser
 - [x] C05 common function IR (initial)
 - [x] C06 function SVG
-- [ ] C07 file relationship map
-- [ ] C08 repository map
-- [ ] C09 call graph
+- [x] C07 file relationship map
+- [x] C08 repository map (initial)
+- [x] C09 call graph (conservative cross-file call edges)
 - [ ] C10 data-flow graph
 - [ ] C11 entry-point detection
 - [ ] C12 dead-code candidates
@@ -34,16 +35,44 @@ JS etc ─┘                         ├─> language conversion
 - [ ] C18 cross-language function mapping
 - [ ] C19 mathematical/algorithm equivalence metadata
 - [ ] C20 standard-library / external-library delegation candidates
-- [ ] C21 token/context size estimator
-- [ ] C22 minimal-context extractor
+- [x] C21 token/context size estimator (initial repo_map)
+- [x] C22 minimal-context extractor (initial)
 - [ ] C23 dependency-aware context expansion
 - [ ] C24 code-summary cache
 - [ ] C25 Git-diff-aware reanalysis
 - [ ] C26 function/file content hashes for cache invalidation
-- [ ] C27 code → human explanation
+- [x] C27 code → human explanation (initial dashboard)
 - [ ] C28 code → teaching material
-- [ ] C29 code diagrams → presentation handoff
-- [ ] C30 conversion equivalence tests
+- [x] C29 code diagrams → presentation handoff (SVG / PPTX / storyboard)
+- [x] C30 conversion equivalence tests (initial TDD for mapping/export)
+
+## Current presentation workflow
+
+```text
+multiple files/folders
+  ↓
+project_mapper.py
+  ↓
+repo_map.json + file_relationships.json
+  ↓
+file_relationships.svg / .mmd
+  ↓
+presentation_export.py
+  ↓
+relationship_deck.pptx
+motion_storyboard.html
+relationship_motion.gif (optional Pillow)
+```
+
+## Remaining hard problems
+
+- C/C++ macro/template-aware parsing
+- include graph vs call graph separation in large projects
+- true data-flow graph
+- entry-point detection
+- PowerPoint design presets
+- GIF generation without optional Pillow
+- changed-file-only incremental reanalysis
 
 ## Efficiency principle
 
