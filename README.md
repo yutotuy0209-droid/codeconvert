@@ -1,77 +1,137 @@
 # codeconvert
 
-個人利用を中心に、コードを「共通の中間表現」と「説明用SVG」へ変換するための再利用ツール置き場です。
+コードを「共通の中間表現」「説明用SVG」「Mermaid」「PowerPoint素材」へ変換するための再利用ツールです。
+
+目的は、複数ファイルで管理している Python / C++ / HPP / MATLAB コードの関係を、人間とAIが同じ図で理解できるようにすることです。
 
 ## Supported
 
 - Python
-- C / C++
+- C / C++ / HPP
 - MATLAB
 
-`src/code_to_svg.py` が共通入口です。各言語の解析結果を同じ `FunctionInfo` へ正規化し、同じSVG rendererを使います。
-
 ```text
-Python ─┐
-C/C++ ──┼─> adapter ─> FunctionInfo ─┬─> JSON
-MATLAB ─┘                            └─> SVG
+複数ファイル / フォルダ
+      ↓
+language adapters
+      ↓
+FunctionInfo / file relations
+      ↓
+SVG / Mermaid / JSON / PPTX / motion storyboard
 ```
 
-## Usage
+## いちばん簡単な使い方
 
-### ファイル全体の概要図
+Windowsでは、次のBATへファイルまたはフォルダをドラッグ＆ドロップします。
+
+```text
+かんたんコード関係マップ作成.bat
+```
+
+出力:
+
+```text
+output/dropped_relationship_map/
+├─ index.html
+├─ repo_map.md
+├─ repo_map.json
+├─ file_relationships.svg
+├─ file_relationships.mmd
+└─ file_relationships.json
+
+output/presentation_pack/
+├─ relationship_deck.pptx
+└─ motion/
+   ├─ motion_storyboard.html
+   ├─ frames/frame_001.svg ...
+   └─ relationship_motion.gif   # Pillowがある場合のみ
+```
+
+PowerPointへ入れる場合は、まず `file_relationships.svg` か `relationship_deck.pptx` を使います。GIF的に説明したい場合は `motion_storyboard.html` を開きます。
+
+## CLI
+
+### ファイル単体の概要図
 
 ```bash
 python src/code_to_svg.py path/to/source.cpp --out output/source.svg
 ```
 
-### 関数ごとにSVGを自動生成
+### 複数ファイル/フォルダの関係図
 
 ```bash
-python src/code_to_svg.py path/to/source.py --split output/functions
-python src/code_to_svg.py path/to/source.cpp --split output/functions
-python src/code_to_svg.py path/to/source.m --split output/functions
+python src/project_mapper.py src/ include/ main.cpp --out output/project_map
 ```
 
-### 特定関数だけ
+生成される主なファイル:
+
+```text
+file_relationships.svg   # PowerPointに貼りやすい四角＋矢印
+file_relationships.mmd   # Mermaid
+file_relationships.json  # AI/後処理用
+repo_map.md              # LLMへ渡す軽量要約
+index.html               # 人間用ダッシュボード
+```
+
+### PPTX / GIF用素材へ変換
 
 ```bash
-python src/code_to_svg.py path/to/source.cpp --function func_xy --out output/func_xy.svg
+python src/presentation_export.py output/project_map --out output/presentation_pack
 ```
 
-### 中間JSONも保存
+生成:
 
-同じ関数名に複数の定義がある場合、`--function`だけでは選択せずエラーにします。定義の開始行を`--line`で指定してください。`--split`は重複名だけに`-L行番号`を付け、別の定義を上書きしません。行指定は構文上の定義の選択であり、条件分岐や実行時の呼出先を確定する機能ではありません。
-
-```bash
-python src/code_to_svg.py source.py --function compute --line 40 --out output/compute.svg
+```text
+relationship_deck.pptx
+motion/motion_storyboard.html
+motion/frames/*.svg
+motion/relationship_motion.gif  # Pillowがあれば生成
 ```
 
-```bash
-python src/code_to_svg.py path/to/source.m --json output/source.json --out output/source.svg
-```
+## Relationship rules
+
+現在の矢印:
+
+| 種類 | 意味 |
+|---|---|
+| `call` | あるファイルの関数が、別ファイルで一意に定義された関数を呼ぶ |
+| `import` | Pythonのrepository-local import |
+| `include` | C/C++の `#include "..."` がrepository内のヘッダ等へ解決された |
+
+同じ関数名が複数ファイルにある場合、勝手に推測せず `ambiguities` に記録します。
 
 ## Structure
 
 ```text
 src/
-├─ code_to_svg.py       # 共通CLI
-├─ model.py             # 言語非依存の中間表現
-├─ renderer.py          # 共通SVG renderer
-├─ cpp_adapter.py       # C/C++
-├─ matlab_adapter.py    # MATLAB
-└─ function_to_svg.py   # 初期Python版（互換用）
+├─ code_to_svg.py          # 単一ファイル/関数のSVG化
+├─ project_mapper.py       # 複数ファイル/フォルダの関係図生成
+├─ presentation_export.py  # PPTX / motion storyboard 出力
+├─ model.py                # 言語非依存の中間表現
+├─ renderer.py             # 共通SVG renderer
+├─ cpp_adapter.py          # C/C++
+├─ matlab_adapter.py       # MATLAB
+└─ function_to_svg.py      # 初期Python版（互換用）
 ```
+
+## TDD
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+GitHub Actionsでも同じテストを実行します。
 
 ## Design
 
 使い切りコードではなく、
 
-**source → language adapter → common model → renderer**
+```text
+source → language adapter → common model → relationship map → presentation assets
+```
 
-という構造にしています。今後、JavaScript等を追加する場合もadapterを追加するだけで、SVG側を作り直さない方針です。
+という構造にしています。
+
+今後、JavaScript等を追加する場合もadapterを追加するだけで、SVG/PPTX側を作り直さない方針です。
 
 C/C++ adapterは軽量な静的抽出器で、コンパイラではありません。複雑なmacro/templateまで厳密に解析する必要が出た場合はClangベースのadapterを追加し、共通モデル以降はそのまま再利用します。
-
-## Personal-first
-
-まず自分の研究・開発で毎回使えることを優先します。他の人にも使える部分は研究固有情報を含めず汎用化して残します。
