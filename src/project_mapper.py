@@ -23,7 +23,7 @@ import sys
 
 from code_to_svg import analyze
 from model import FunctionInfo
-from renderer import render_code_map_svg, render_function_svg, slugify
+from renderer import render_code_map_svg, slugify
 
 
 @dataclass(frozen=True)
@@ -81,6 +81,34 @@ def _python_import_targets(path: Path, root: Path, known_files: set[str]) -> set
     return targets
 
 
+def _cpp_include_targets(path: Path, root: Path, known_files: set[str]) -> set[str]:
+    """Resolve local C/C++ quoted includes, such as #include \"worker.hpp\"."""
+    if path.suffix.lower() not in {".cpp", ".cc", ".cxx", ".c", ".hpp", ".hxx", ".h"}:
+        return set()
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return set()
+    targets: set[str] = set()
+    current_dir = path.parent
+    rel_self = path.relative_to(root).as_posix()
+    for match in re.finditer(r'^\s*#\s*include\s+"([^"]+)"', text, re.MULTILINE):
+        include_name = match.group(1).replace("\\", "/")
+        candidates = [
+            (current_dir / include_name).resolve(),
+            (root / include_name).resolve(),
+        ]
+        for candidate in candidates:
+            try:
+                rel = candidate.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if rel in known_files and rel != rel_self:
+                targets.add(rel)
+                break
+    return targets
+
+
 def build_file_relations(
     target_dir: Path,
     project_items: dict[str, list[FunctionInfo]],
@@ -129,6 +157,8 @@ def build_file_relations(
         source_path = target_dir / source
         for target in _python_import_targets(source_path, target_dir, known_files):
             add_edge(source, target, "import", "")
+        for target in _cpp_include_targets(source_path, target_dir, known_files):
+            add_edge(source, target, "include", Path(target).name)
 
     relations = [
         FileRelation(source=s, target=t, relation=kind, labels=tuple(sorted(labels)))
@@ -196,10 +226,11 @@ def generate_relationship_svg(
         "<defs>",
         '<marker id="arrow-call" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2563EB"/></marker>',
         '<marker id="arrow-import" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748B"/></marker>',
+        '<marker id="arrow-include" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#9333EA"/></marker>',
         "</defs>",
         '<rect width="100%" height="100%" fill="#F8FAFC"/>',
         _svg_text(60, 48, "Project File Relationship Map", 28, 700, "#0F172A"),
-        _svg_text(60, 78, "Arrow direction: caller/importer → dependency", 14, 400, "#64748B"),
+        _svg_text(60, 78, "Arrow direction: caller/importer/includer → dependency", 14, 400, "#64748B"),
     ]
 
     # Draw edges first so boxes stay on top.
@@ -210,9 +241,12 @@ def generate_relationship_svg(
         tx, ty = positions[rel.target]
         x1, y1 = sx + box_w / 2, sy + box_h / 2
         x2, y2 = tx + box_w / 2, ty + box_h / 2
-        color = "#2563EB" if rel.relation == "call" else "#64748B"
-        marker = "arrow-call" if rel.relation == "call" else "arrow-import"
-        dash = "" if rel.relation == "call" else ' stroke-dasharray="7 5"'
+        if rel.relation == "call":
+            color, marker, dash = "#2563EB", "arrow-call", ""
+        elif rel.relation == "include":
+            color, marker, dash = "#9333EA", "arrow-include", ""
+        else:
+            color, marker, dash = "#64748B", "arrow-import", ' stroke-dasharray="7 5"'
         parts.append(
             f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
             f'stroke="{color}" stroke-width="2" marker-end="url(#{marker})"{dash}/>'
@@ -242,7 +276,7 @@ def generate_relationship_svg(
         parts.append(_svg_text(x + 16, y + 77, sample, 11, 400, "#334155"))
 
     parts += [
-        _svg_text(60, height - 34, "Blue = resolved function call   /   Gray dashed = local Python import", 12, 400, "#64748B"),
+        _svg_text(60, height - 34, "Blue = function call   /   Purple = C/C++ include   /   Gray dashed = Python import", 12, 400, "#64748B"),
         "</svg>",
     ]
     return "\n".join(parts)
@@ -315,14 +349,16 @@ def generate_html_dashboard(project_items: dict[str, list[FunctionInfo]], output
     a:hover {{ text-decoration: underline; }}
     ul {{ padding-left: 20px; color: #CBD5E1; font-size: 14px; }}
     code {{ background: #0F172A; padding: 2px 6px; border-radius: 4px; color: #38BDF8; }}
-    .btn {{ display: inline-block; background: #2563EB; color: white; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-bottom: 24px; }}
+    .btn {{ display: inline-block; background: #2563EB; color: white; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-weight: bold; margin: 0 8px 24px 0; }}
     .btn:hover {{ background: #1D4ED8; }}
 </style>
 </head>
 <body>
 <h1>🧭 コード関係地図 ＆ トークン省エネダッシュボード</h1>
 <div class="subtitle">AIトークンの省エネ化 ＆ 人間の認知負荷ゼロ化のための自動可視化システム</div>
-<a class="btn" href="repo_map.md" target="_blank">📋 AI用トークン省エネ要約 (repo_map.md) を開く</a>
+<a class="btn" href="repo_map.md" target="_blank">📋 AI用トークン省エネ要約</a>
+<a class="btn" href="file_relationships.svg" target="_blank">🧭 ファイル関係SVG</a>
+<a class="btn" href="file_relationships.mmd" target="_blank">🧩 Mermaid</a>
 <div class="grid">
 {''.join(items_html)}
 </div>
@@ -345,7 +381,6 @@ def _map_files(files: list[Path], root: Path, output_dir: Path) -> None:
             rel_name = file_path.name
         try:
             funcs = analyze(file_path)
-            # Keep even zero-function entry/config scripts in the file graph.
             project_items[rel_name] = funcs
             if funcs:
                 slug = slugify(rel_name)
@@ -382,12 +417,6 @@ def _map_files(files: list[Path], root: Path, output_dir: Path) -> None:
     )
 
     dashboard = generate_html_dashboard(project_items, output_dir)
-    dashboard = dashboard.replace(
-        '<a class="btn" href="repo_map.md" target="_blank">📋 AI用トークン省エネ要約 (repo_map.md) を開く</a>',
-        '<a class="btn" href="repo_map.md" target="_blank">📋 AI用トークン省エネ要約</a> '
-        '<a class="btn" href="file_relationships.svg" target="_blank">🧭 ファイル関係SVG</a> '
-        '<a class="btn" href="file_relationships.mmd" target="_blank">🧩 Mermaid</a>'
-    )
     (output_dir / "index.html").write_text(dashboard, encoding="utf-8")
 
     print(f"[SUCCESS] Code relationship maps generated at: {output_dir}")
@@ -435,6 +464,7 @@ def scan_and_map_inputs(targets: list[Path], output_dir: Path) -> None:
         root = files[0].parent
 
     _map_files(files, root, output_dir)
+
 
 def main():
     p = argparse.ArgumentParser(description="Map file/function relationships and optimize AI context.")
