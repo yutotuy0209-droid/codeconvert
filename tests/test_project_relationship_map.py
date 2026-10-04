@@ -16,8 +16,8 @@ from project_mapper import build_file_relations, generate_mermaid, generate_rela
 class ProjectRelationshipMapTest(unittest.TestCase):
     def _project_items(self, root: Path):
         result = {}
-        for path in sorted(root.rglob("*.py")):
-            if path.name.startswith("test_"):
+        for path in sorted(root.rglob("*")):
+            if path.name.startswith("test_") or path.suffix.lower() not in {".py", ".cpp", ".hpp", ".h", ".c", ".m"}:
                 continue
             funcs = analyze(path)
             result[path.relative_to(root).as_posix()] = funcs
@@ -53,6 +53,30 @@ class ProjectRelationshipMapTest(unittest.TestCase):
             svg = generate_relationship_svg(items, relations)
             self.assertIn("Project File Relationship Map", svg)
             self.assertIn("caller/importer", svg)
+
+    def test_cpp_quoted_include_resolves_to_hpp_dependency(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "main.cpp").write_text(
+                '#include "worker.hpp"\nint main(){ return calculate(3); }\n',
+                encoding="utf-8",
+            )
+            (root / "worker.hpp").write_text(
+                "int calculate(int x);\n",
+                encoding="utf-8",
+            )
+            (root / "worker.cpp").write_text(
+                '#include "worker.hpp"\nint calculate(int x){ return x * 2; }\n',
+                encoding="utf-8",
+            )
+
+            items = self._project_items(root)
+            relations, _ = build_file_relations(root, items)
+            triples = {(r.source, r.target, r.relation) for r in relations}
+            self.assertIn(("main.cpp", "worker.hpp", "include"), triples)
+            self.assertIn(("worker.cpp", "worker.hpp", "include"), triples)
+            mermaid = generate_mermaid(items, relations)
+            self.assertIn("INCLUDE", mermaid)
 
     def test_ambiguous_called_symbol_is_reported_not_guessed(self):
         with tempfile.TemporaryDirectory() as td:
