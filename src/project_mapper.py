@@ -332,38 +332,33 @@ def generate_html_dashboard(project_items: dict[str, list[FunctionInfo]], output
     return html_content
 
 
-def scan_and_map_project(target_dir: Path, output_dir: Path) -> None:
+def _map_files(files: list[Path], root: Path, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     project_items: dict[str, list[FunctionInfo]] = {}
 
-    extensions = {".cpp", ".hpp", ".c", ".h", ".py", ".m"}
-    files = [
-        p for p in target_dir.rglob("*")
-        if p.is_file() and p.suffix.lower() in extensions and "test" not in p.name.lower()
-    ]
+    print(f"[SCAN] Found {len(files)} source files")
 
-    print(f"[SCAN] Found {len(files)} source files in {target_dir}")
-
-    for file_path in files:
+    for file_path in sorted(set(files)):
         try:
-            rel_name = file_path.relative_to(target_dir).as_posix()
+            rel_name = file_path.relative_to(root).as_posix()
+        except ValueError:
+            rel_name = file_path.name
+        try:
             funcs = analyze(file_path)
+            # Keep even zero-function entry/config scripts in the file graph.
+            project_items[rel_name] = funcs
             if funcs:
-                project_items[rel_name] = funcs
-                # SVG生成
                 slug = slugify(rel_name)
                 svg_content = render_code_map_svg(funcs, rel_name)
                 (output_dir / f"{slug}.svg").write_text(svg_content, encoding="utf-8")
         except Exception as e:
-            print(f"[WARN] Skipped {file_path.name}: {e}")
+            print(f"[WARN] Skipped {file_path}: {e}")
 
-    relations, ambiguities = build_file_relations(target_dir, project_items)
+    relations, ambiguities = build_file_relations(root, project_items)
 
-    # 1. AI用トークン省エネ要約 Markdown
     token_md = generate_token_map_markdown(project_items)
     (output_dir / "repo_map.md").write_text(token_md, encoding="utf-8")
 
-    # 2. JSON 中間表現
     summary_data = {
         name: [f.__dict__ for f in funcs]
         for name, funcs in project_items.items()
@@ -372,7 +367,6 @@ def scan_and_map_project(target_dir: Path, output_dir: Path) -> None:
         json.dumps(summary_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    # 3. ファイル間関係図: SVG / Mermaid / JSON
     (output_dir / "file_relationships.svg").write_text(
         generate_relationship_svg(project_items, relations), encoding="utf-8"
     )
@@ -387,15 +381,14 @@ def scan_and_map_project(target_dir: Path, output_dir: Path) -> None:
         encoding="utf-8",
     )
 
-    # 4. 人間用 HTML ダッシュボード
-    html = generate_html_dashboard(project_items, output_dir)
-    html = html.replace(
+    dashboard = generate_html_dashboard(project_items, output_dir)
+    dashboard = dashboard.replace(
         '<a class="btn" href="repo_map.md" target="_blank">📋 AI用トークン省エネ要約 (repo_map.md) を開く</a>',
         '<a class="btn" href="repo_map.md" target="_blank">📋 AI用トークン省エネ要約</a> '
         '<a class="btn" href="file_relationships.svg" target="_blank">🧭 ファイル関係SVG</a> '
         '<a class="btn" href="file_relationships.mmd" target="_blank">🧩 Mermaid</a>'
     )
-    (output_dir / "index.html").write_text(html, encoding="utf-8")
+    (output_dir / "index.html").write_text(dashboard, encoding="utf-8")
 
     print(f"[SUCCESS] Code relationship maps generated at: {output_dir}")
     print(f"          - Human Map: {output_dir / 'index.html'}")
@@ -406,13 +399,55 @@ def scan_and_map_project(target_dir: Path, output_dir: Path) -> None:
         print(f"          - Ambiguous calls not guessed: {len(ambiguities)}")
 
 
+def scan_and_map_project(target_dir: Path, output_dir: Path) -> None:
+    extensions = {".cpp", ".hpp", ".c", ".h", ".py", ".m"}
+    files = [
+        p for p in target_dir.rglob("*")
+        if p.is_file() and p.suffix.lower() in extensions and "test" not in p.name.lower()
+    ]
+    _map_files(files, target_dir, output_dir)
+
+
+def scan_and_map_inputs(targets: list[Path], output_dir: Path) -> None:
+    """Accept one folder, multiple folders, files, or a mixture."""
+    extensions = {".cpp", ".hpp", ".c", ".h", ".py", ".m"}
+    resolved = [p.resolve() for p in targets]
+    files: list[Path] = []
+
+    for target in resolved:
+        if target.is_dir():
+            files.extend(
+                p for p in target.rglob("*")
+                if p.is_file() and p.suffix.lower() in extensions and "test" not in p.name.lower()
+            )
+        elif target.is_file() and target.suffix.lower() in extensions:
+            files.append(target)
+        else:
+            print(f"[WARN] Unsupported or missing input: {target}")
+
+    if not files:
+        raise SystemExit("No supported source files were found.")
+
+    try:
+        import os
+        root = Path(os.path.commonpath([str(p.parent if p.is_file() else p) for p in resolved]))
+    except ValueError:
+        root = files[0].parent
+
+    _map_files(files, root, output_dir)
+
 def main():
-    p = argparse.ArgumentParser(description="Map project code relationships and optimize AI tokens.")
-    p.add_argument("target_dir", type=Path, help="Target directory containing source files")
+    p = argparse.ArgumentParser(description="Map file/function relationships and optimize AI context.")
+    p.add_argument(
+        "targets",
+        type=Path,
+        nargs="+",
+        help="One or more source files/directories. Drag-and-drop paths are also accepted by shell launchers.",
+    )
     p.add_argument("--out", type=Path, default=Path("output/project_map"), help="Output directory")
     args = p.parse_args()
 
-    scan_and_map_project(args.target_dir, args.out)
+    scan_and_map_inputs(args.targets, args.out)
 
 
 if __name__ == "__main__":
